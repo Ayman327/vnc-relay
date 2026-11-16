@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -232,7 +233,19 @@ func (s *server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.pending[id] = p
 	s.mu.Unlock()
-	if err := s.vmSendText(ctrlMsg{T: "http", ID: id, Method: r.Method, Path: r.URL.RequestURI()}); err != nil {
+	// Read the request body (for POST forms) and forward it to the VM.
+	var bodyB64 string
+	var reqHeaders map[string]string
+	if r.Body != nil {
+		raw, _ := io.ReadAll(io.LimitReader(r.Body, 4<<20))
+		if len(raw) > 0 {
+			bodyB64 = base64.StdEncoding.EncodeToString(raw)
+		}
+	}
+	if ct := r.Header.Get("Content-Type"); ct != "" {
+		reqHeaders = map[string]string{"Content-Type": ct}
+	}
+	if err := s.vmSendText(ctrlMsg{T: "http", ID: id, Method: r.Method, Path: r.URL.RequestURI(), Body: bodyB64, Headers: reqHeaders}); err != nil {
 		s.mu.Lock()
 		delete(s.pending, id)
 		s.mu.Unlock()
